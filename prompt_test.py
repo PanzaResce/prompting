@@ -28,6 +28,15 @@ def parse_arguments():
         choices=["few", "zero"],
         help="Specify the prompting technique to use"
     )
+
+    parser.add_argument(
+        "-quant",
+        type=str,
+        required=True,
+        metavar="prompting_technique",
+        choices=["4", "8"],
+        help="Specify the prompting technique to use"
+    )
     
     return parser.parse_args()
 
@@ -43,7 +52,7 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant)
 
         print(models_score)
         write_res_to_file("models", models_score, args.type)
@@ -52,7 +61,7 @@ if __name__ == "__main__":
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type)
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant)
 
         print(model_score)
         write_res_to_file(args.m, model_score, args.type)

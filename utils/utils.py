@@ -11,13 +11,24 @@ HEADERS = {"Authorization": f"Bearer {TOKEN}", 'Cache-Control': 'no-cache'}
 def extract_model_name(card):
     return card.split("/")[-1]
 
-def get_bnb_config():
-    return transformers.BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
+def get_bnb_config(type: str):
+    admissable_quant = ("8", "4", "None")
+    if type not in admissable_quant:
+        print(f"Quantization type must be one of {admissable_quant}, {type} not valid")
+    
+    if type == "8":
+        return transformers.BitsAndBytesConfig(
+            load_in_8bit=True
+        )
+    elif type == "4":
+        return transformers.BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+    else:
+        return
 
 def load_dataset(path, split):
     ds = load_from_disk(path)
@@ -41,11 +52,19 @@ def create_pipeline(model, tokenizer):
         pad_token_id=tokenizer.eos_token_id,
     )
 
-def generate_responses(pipe, ds_test, base_prompt, temp):
+def generate_responses(pipe, ds_test, base_prompt, temp, debug=0):
     responses = []
+    # prompt = base_prompt + "Clause in the terms of service: '{clause}' Response:"
+    prompt = base_prompt + "Clause: '{clause}' Response:"
+
+    if debug > 0:
+        print(f"Using the following prompt format: {prompt}")
     for clause, label in tqdm(zip(ds_test["text"], ds_test["labels"]), total=len(ds_test)):
-        messages = [{"role": "system", "content": base_prompt},
-                    {"role": "user", "content": clause}]
+        if debug > 1:
+            print(prompt.format(clause=clause))
+
+        messages = [{"role": "system",
+                     "content": prompt.format(clause=clause)}]
         gen_out = pipe(messages, max_new_tokens=50, temperature=temp, do_sample=False)[0]
         gen_out["labels"] = label
         responses.append(gen_out)
@@ -55,7 +74,8 @@ def compute_f1_score(responses, label_to_id, debug=0):
     y_true, y_pred = [], []
     for r in responses:
         # resp_tags = [t for t in r["generated_text"][2]["content"].replace("<", "").replace(">", "").replace(",", "").split(" ")]
-        resp_tags = re.findall(r"(?<=<)[^>]+(?=>)", r["generated_text"][2]["content"])
+        # resp_tags = re.findall(r"(?<=<)[^>]+(?=>)", r["generated_text"][-1]["content"])
+        resp_tags = [tag.strip() for tag in r["generated_text"][-1]["content"].split(",")]
 
 
         true_sample = [0] * len(label_to_id)
@@ -78,7 +98,7 @@ def compute_f1_score(responses, label_to_id, debug=0):
             print(f"Sample encoding: {pred_sample}")
 
         if debug > 2:
-            print(f"Original response: {r['generated_text'][2]['content']}")
+            print(f"Original response: {r['generated_text'][-1]['content']}")
 
         y_true.append(true_sample)
         y_pred.append(pred_sample)
@@ -91,9 +111,9 @@ def write_res_to_file(model_name, model_score, prompt_type):
     with open(f'out/{prompt_type}/{model_name}_score.json', 'w') as file: 
         file.write(json.dumps(model_score))
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type):
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant):
     label_to_id = LABEL_TO_ID
-    bnb_config = get_bnb_config()
+    bnb_config = get_bnb_config(quant)
     models_score = {}
 
     if prompt_type == "zero":
@@ -102,17 +122,17 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type):
         base_prompt = FEW_PROMPT
 
     for name, model_card in endpoints.items():
-        print(f"------------ Evaluating model {name} on {prompt_type} ------------")
+        print(f"------------ Evaluating model {name} on {prompt_type} with {quant} quantization ------------")
         model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
         pipe = create_pipeline(model, tokenizer)
 
         # Evaluate on test dataset
-        test_responses = generate_responses(pipe, ds_test, base_prompt)
+        test_responses = generate_responses(pipe, ds_test, base_prompt, temp=0)
         test_scores = compute_f1_score(test_responses, label_to_id)
 
         if ds_val != None:
             # Evaluate on validation dataset
-            validation_responses = generate_responses(pipe, ds_val, base_prompt)
+            validation_responses = generate_responses(pipe, ds_val, base_prompt, temp=0)
             validation_scores = compute_f1_score(validation_responses, label_to_id)
         else:
             validation_scores = {"macro": 0.0, "micro": 0.0}
