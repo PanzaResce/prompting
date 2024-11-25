@@ -21,11 +21,19 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-subset",
+        type=int,
+        required=False,
+        metavar="dataset_subset",
+        help="Specify to use a subset of the dataset"
+    )
+
+    parser.add_argument(
         "-type",
         type=str,
         required=True,
         metavar="prompting_technique",
-        choices=["few", "zero"],
+        choices=["zero", "zero_old", "multi_zero", "multi_few", "multi_few_half"],
         help="Specify the prompting technique to use"
     )
 
@@ -33,9 +41,9 @@ def parse_arguments():
         "-quant",
         type=str,
         required=True,
-        metavar="prompting_technique",
-        choices=["4", "8"],
-        help="Specify the prompting technique to use"
+        metavar="quantization",
+        choices=["None", "4", "8"],
+        help="Specify the quantization bits"
     )
     
     return parser.parse_args()
@@ -48,6 +56,10 @@ if __name__ == "__main__":
 
     print("Loading dataset")
     ds_test = load_dataset("./142_dataset/tos.hf/", split="test")
+
+    if args.subset != "":
+        print(f"Using a subset of the dataset: {args.subset}")
+        ds_test = ds_test[:args.subset]
     # ds_val = load_dataset("../dataset_refactoring/142_dataset/tos.hf/", split="validation")
 
     if args.all:
@@ -65,8 +77,3 @@ if __name__ == "__main__":
 
         print(model_score)
         write_res_to_file(args.m, model_score, args.type)
-
-
-    
-
-    
