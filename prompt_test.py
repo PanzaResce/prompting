@@ -29,12 +29,28 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-debug",
+        type=int,
+        required=False,
+        metavar="debug_level",
+        default=0,
+        help="Specify to level of debug"
+    )
+
+    parser.add_argument(
         "-type",
         type=str,
         required=True,
         metavar="prompting_technique",
-        choices=["zero", "zero_old", "multi_zero", "multi_few", "multi_few_half"],
+        choices=["zero", "zero_old", "multi_zero", "multi_few"],
         help="Specify the prompting technique to use"
+    )
+
+    parser.add_argument(
+        "-num_shots",
+        type=int,
+        metavar="number_of_shots",
+        help="Specify the number of shots for few-shot techniques"
     )
 
     parser.add_argument(
@@ -45,8 +61,16 @@ def parse_arguments():
         choices=["None", "4", "8"],
         help="Specify the quantization bits"
     )
+
+    args = parser.parse_args()
+
+    if not args.num_shots is None:
+        print(f"Using {args.num_shots} shots")
+
+    if args.type in ["multi_few"] and args.num_shots is None:
+        parser.error("-num_shots is required when -type is 'multi_few'")
     
-    return parser.parse_args()
+    return args
 
 if __name__ == "__main__":
     args = parse_arguments()
@@ -64,7 +88,7 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, args.debug)
 
         print(models_score)
         write_res_to_file("models", models_score, args.type)
@@ -73,7 +97,7 @@ if __name__ == "__main__":
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant)
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, args.debug)
 
         print(model_score)
         write_res_to_file(args.m, model_score, args.type)
