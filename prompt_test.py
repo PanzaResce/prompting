@@ -1,3 +1,4 @@
+from itertools import tee
 from huggingface_hub import login
 
 import argparse, json
@@ -62,6 +63,12 @@ def parse_arguments():
         help="Specify the quantization bits"
     )
 
+    parser.add_argument(
+        "-unfair_only",
+        action="store_true",
+        help="Use a -subset of only unfair clauses"
+    )
+
     args = parser.parse_args()
 
     if not args.num_shots is None:
@@ -70,6 +77,9 @@ def parse_arguments():
     if args.type in ["multi_few"] and args.num_shots is None:
         parser.error("-num_shots is required when -type is 'multi_few'")
     
+    if args.unfair_only and args.subset is None:
+        parser.error("You need to specify also the -subset arguments if -unfair_only is set")
+
     return args
 
 if __name__ == "__main__":
@@ -83,21 +93,20 @@ if __name__ == "__main__":
 
     if args.subset != "":
         print(f"Using a subset of the dataset: {args.subset}")
-        ds_test = ds_test[:args.subset]
+        if args.unfair_only:
+            ds_test = pick_only_unfair_clause(ds_test, args.subset)
+        else:
+            ds_test = ds_test[:args.subset]
+        
     # ds_val = load_dataset("../dataset_refactoring/142_dataset/tos.hf/", split="validation")
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, args.debug)
-
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
         print(models_score)
-        write_res_to_file("models", models_score, args.type)
-
 
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, args.debug)
-
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
         print(model_score)
-        write_res_to_file(args.m, model_score, args.type)

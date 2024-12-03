@@ -1,7 +1,9 @@
 ENDPOINTS = {
-    "llama3": "meta-llama/Llama-3.2-3B-Instruct",
-    "phi3": "microsoft/Phi-3.5-mini-instruct",
-    "llama8": "meta-llama/Meta-Llama-3-8B-Instruct"
+    # "llama3": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama3": "meta-llama/Llama-3.2-3B",
+    # "phi3": "microsoft/Phi-3.5-mini-instruct",  
+    # "llama8": "meta-llama/Llama-3.1-8B"
+    # "llama8": "meta-llama/Meta-Llama-3-8B-Instruct"
 }
 
 ZERO_PROMPT_0 = """
@@ -63,44 +65,44 @@ A clause can be assigned to zero or more unfairness categories. If a clause is u
 Clause:
 """
 
-FEW_EXAMPLES_POS = {
-    "a": ["Any and all Claims will be resolved by binding arbitration, rather than in court, except you may assert Claims on an individual basis in small claims court if they qualify.", "If we are not able to resolve your Claims within 60 days, you may seek relief through arbitration or in small claims court, as set forth below."],
-    "cr": ["Although we have no obligation to screen, edit, or monitor Your Content, we may, in our sole discretion, delete or remove Your Content at any time and for any reason, including for a violation of these Terms, a violation of our Content Policy, or if you otherwise create liability for us.", "We have the right to remove any posting you make on our site if, in our opinion, your post does not comply with the content standards set out in our Acceptable Use Policy."],
-    "ch": ["If we make changes, we will post the amended Terms to our Services and update the Effective Date above.", "We may also, at our sole discretion, limit access to the Services and/or terminate the accounts of any users who infringe any intellectual property rights of others, whether or not there is any repeat infringement."],
-    "j": ["any judicial proceeding will be brought in the federal or state courts of San Francisco county, California.", "Except as otherwise set forth in these Terms, these Terms shall be exclusively governed by and construed in accordance with the laws of The Netherlands, excluding its rules on conflicts of laws."],
-    "law": ["If you are from outside of mainland China, The Terms shall be governed by the laws of Hong Kong without regard to its conflict of law provisions.", "You irrevocably agree that the courts of England have exclusive jurisdiction to settle any dispute or claim that arises out of or in connection with the Terms or their subject matter or formation (including non-contractual disputes or claims)."],
-    "ltd": ["If we fail to comply with these Terms, we will be liable to you only for the purchase price of the Products in question.", "We will not be liable, directly or indirectly, for any damage or loss caused or alleged to be caused by or in connection with your use of or reliance on any such content, goods or services available on or through any third party websites, content or mobile application."],
-    "ter": ["We reserve the right to delete or disable content alleged to be infringing and terminate accounts of repeat infringers.", "We may terminate your Account(s) if we learn, or in good faith believe, that you are a registered sex offender, that accessing the Service may violate a condition of parole or probation, that you have engaged in or attempted to engage in conduct with minors on the Service that violates this Agreement, or that you for any other reason may pose what we deem to be an unacceptable risk to the Service community."],
-    "use": ["When you use our Services, in addition to enjoying a world of good vibes, you also agree to the Terms and they affect your rights and obligations.", "You agree to our Terms of Service (“Terms”) by installing, accessing, or using our apps, services, features, software, or website (together, “Services”)."],
-    "pinc": ["Any use of the services implies unreserved approval of these terms and Ubisoft's privacy policy.", "Please see our Privacy which forms part of these terms and conditions."]
-}
+# FEW_EXAMPLES_POS = {
+#     "a": ["Any and all Claims will be resolved by binding arbitration, rather than in court, except you may assert Claims on an individual basis in small claims court if they qualify.", "If we are not able to resolve your Claims within 60 days, you may seek relief through arbitration or in small claims court, as set forth below."],
+#     "cr": ["Although we have no obligation to screen, edit, or monitor Your Content, we may, in our sole discretion, delete or remove Your Content at any time and for any reason, including for a violation of these Terms, a violation of our Content Policy, or if you otherwise create liability for us.", "We have the right to remove any posting you make on our site if, in our opinion, your post does not comply with the content standards set out in our Acceptable Use Policy."],
+#     "ch": ["If we make changes, we will post the amended Terms to our Services and update the Effective Date above.", "We may also, at our sole discretion, limit access to the Services and/or terminate the accounts of any users who infringe any intellectual property rights of others, whether or not there is any repeat infringement."],
+#     "j": ["any judicial proceeding will be brought in the federal or state courts of San Francisco county, California.", "Except as otherwise set forth in these Terms, these Terms shall be exclusively governed by and construed in accordance with the laws of The Netherlands, excluding its rules on conflicts of laws."],
+#     "law": ["If you are from outside of mainland China, The Terms shall be governed by the laws of Hong Kong without regard to its conflict of law provisions.", "You irrevocably agree that the courts of England have exclusive jurisdiction to settle any dispute or claim that arises out of or in connection with the Terms or their subject matter or formation (including non-contractual disputes or claims)."],
+#     "ltd": ["If we fail to comply with these Terms, we will be liable to you only for the purchase price of the Products in question.", "We will not be liable, directly or indirectly, for any damage or loss caused or alleged to be caused by or in connection with your use of or reliance on any such content, goods or services available on or through any third party websites, content or mobile application."],
+#     "ter": ["We reserve the right to delete or disable content alleged to be infringing and terminate accounts of repeat infringers.", "We may terminate your Account(s) if we learn, or in good faith believe, that you are a registered sex offender, that accessing the Service may violate a condition of parole or probation, that you have engaged in or attempted to engage in conduct with minors on the Service that violates this Agreement, or that you for any other reason may pose what we deem to be an unacceptable risk to the Service community."],
+#     "use": ["When you use our Services, in addition to enjoying a world of good vibes, you also agree to the Terms and they affect your rights and obligations.", "You agree to our Terms of Service (“Terms”) by installing, accessing, or using our apps, services, features, software, or website (together, “Services”)."],
+#     "pinc": ["Any use of the services implies unreserved approval of these terms and Ubisoft's privacy policy.", "Please see our Privacy which forms part of these terms and conditions."]
+# }
 
-FEW_EXAMPLES_HALF = {
-    "a": ["Any and all Claims will be resolved by binding arbitration, rather than in court, except you may assert Claims on an individual basis in small claims court if they qualify.", 
-          "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "cr": ["Although we have no obligation to screen, edit, or monitor Your Content, we may, in our sole discretion, delete or remove Your Content at any time and for any reason, including for a violation of these Terms, a violation of our Content Policy, or if you otherwise create liability for us.", 
-           "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "ch": ["If we make changes, we will post the amended Terms to our Services and update the Effective Date above.", 
-           "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "j": ["any judicial proceeding will be brought in the federal or state courts of San Francisco county, California.", 
-          "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "law": ["If you are from outside of mainland China, The Terms shall be governed by the laws of Hong Kong without regard to its conflict of law provisions.", 
-            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "ltd": ["If we fail to comply with these Terms, we will be liable to you only for the purchase price of the Products in question.", 
-            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "ter": ["We reserve the right to delete or disable content alleged to be infringing and terminate accounts of repeat infringers.", 
-            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "use": ["When you use our Services, in addition to enjoying a world of good vibes, you also agree to the Terms and they affect your rights and obligations.", 
-            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
-    "pinc": ["Any use of the services implies unreserved approval of these terms and Ubisoft's privacy policy.", 
-             "we are not a health care or medical device provider, nor should our products be considered medical advice."]
-}
+# FEW_EXAMPLES_HALF = {
+#     "a": ["Any and all Claims will be resolved by binding arbitration, rather than in court, except you may assert Claims on an individual basis in small claims court if they qualify.", 
+#           "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "cr": ["Although we have no obligation to screen, edit, or monitor Your Content, we may, in our sole discretion, delete or remove Your Content at any time and for any reason, including for a violation of these Terms, a violation of our Content Policy, or if you otherwise create liability for us.", 
+#            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "ch": ["If we make changes, we will post the amended Terms to our Services and update the Effective Date above.", 
+#            "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "j": ["any judicial proceeding will be brought in the federal or state courts of San Francisco county, California.", 
+#           "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "law": ["If you are from outside of mainland China, The Terms shall be governed by the laws of Hong Kong without regard to its conflict of law provisions.", 
+#             "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "ltd": ["If we fail to comply with these Terms, we will be liable to you only for the purchase price of the Products in question.", 
+#             "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "ter": ["We reserve the right to delete or disable content alleged to be infringing and terminate accounts of repeat infringers.", 
+#             "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "use": ["When you use our Services, in addition to enjoying a world of good vibes, you also agree to the Terms and they affect your rights and obligations.", 
+#             "we are not a health care or medical device provider, nor should our products be considered medical advice."],
+#     "pinc": ["Any use of the services implies unreserved approval of these terms and Ubisoft's privacy policy.", 
+#              "we are not a health care or medical device provider, nor should our products be considered medical advice."]
+# }
 
 MULTI_PROMPT = """Evaluate the following clause from a terms of service document based on the provided definition of unfairness:  
 Definition:  
 {cat_descr}  
 
-If the clause is unfair according to the definition respond with "y" otherwise respond with "n". Do not include any additional text or explanation.
+If the clause is unfair according to the definition respond with "y" otherwise respond with "n". Respond with "n" also if the clause is unrelated to the definition. Do not include any additional text or explanation.
 Clause: {clause}
 """
 
@@ -108,24 +110,13 @@ MULTI_PROMPT_FEW = """Evaluate the following clause from a terms of service docu
 Definition:  
 {cat_descr}  
 
-If the clause is unfair according to the definition respond with "y" otherwise respond with "n". Do not include any additional text or explanation.
+If the clause is unfair according to the definition respond with "y" otherwise respond with "n". Respond with "n" also if the clause is unrelated to the definition. Do not include any additional text or explanation.
 Examples:
 {examples}
 
 Test Input:
 Clause: {clause}
-Response:
-"""
-
-# MULTI_PROMPT = """Evaluate the following clause from a terms of service document based on the provided definition of unfairness:  
-# Definition:  
-# {cat_descr}  
-
-# Clause:  
-# {clause}   
-
-# Is this clause unfair according to the definition? Respond with "y" for yes or "n" for no. Do not include any additional text or explanation.
-# Answer:"""
+Response:"""
 
 LABEL_TO_ID = {
     "fair": 0,

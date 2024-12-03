@@ -1,3 +1,5 @@
+from ast import Raise
+from click import prompt
 import requests, transformers, json, torch, re, os, gc
 from tqdm import tqdm
 from datasets import load_from_disk
@@ -35,6 +37,18 @@ def load_dataset(path, split):
     ds = load_from_disk(path)
     return ds[split]
 
+def pick_only_unfair_clause(ds_test, num_elements=None):    
+    new_ds_test = {"text": [], "labels": []}
+    for clause, label in zip(ds_test["text"], ds_test["labels"]):
+        if 0 not in label:
+            new_ds_test["text"].append(clause)
+            new_ds_test["labels"].append(label)
+
+    if num_elements is None:
+        num_elements = len(new_ds_test["text"])
+
+    return {"text": new_ds_test["text"][:num_elements], "labels": new_ds_test["labels"][:num_elements]}
+
 def load_model_and_tokenizer(model_card, bnb_config):
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_card,
@@ -47,65 +61,6 @@ def load_model_and_tokenizer(model_card, bnb_config):
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_card)
     return model, tokenizer
 
-def create_pipeline(model, tokenizer):
-    pipe = transformers.pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        pad_token_id=tokenizer.eos_token_id,
-    )
-
-    # For older transformers versions
-    pipe.tokenizer.pad_token_id = tokenizer.eos_token_id
-    pipe.tokenizer.padding_side = 'left'
-    return pipe
-
-def generate_responses(pipe, ds_test, base_prompt, temp, debug=0):
-    if isinstance(base_prompt, MultiPrompt):
-        return multiprompt_responses(pipe, ds_test, base_prompt, temp, debug)
-    
-    if debug > 0:
-        print(f"Using the following prompt format: {base_prompt}")
-
-    responses = []
-    for clause in tqdm(ds_test["text"], total=len(ds_test)):
-        messages = [{"role": "user", "content": base_prompt + clause}]
-        
-        gen_out = pipe(messages, max_new_tokens=30, temperature=temp, do_sample=False, return_full_text=False)
-        responses.append(gen_out[0]["generated_text"].strip())
-    return responses
-
-def multiprompt_responses(pipe, ds_test, multiprompt, temp, debug=0):
-    responses = []
-    raw_responses = []
-    if debug > 0:
-        print("Using MultiPrompt")
-    for clause in tqdm(ds_test["text"], total=len(ds_test)):
-        clause_resp = []
-        per_category_prompt = multiprompt.get_prompts(clause, debug)
-
-        if debug > 1:
-            print(f"Prompt used: \n {per_category_prompt}")
-
-        messages = [[{"role": "user", "content": prompt}] for cat, prompt in per_category_prompt.items()]
-        gen_out = pipe(messages, batch_size=4, max_new_tokens=5, temperature=temp, do_sample=False, return_full_text=False)
-        # print(gen_out)
-        for resp, cat in zip(gen_out, per_category_prompt.keys()):
-            # if debug > 1:
-            #     print(f"Response: {resp[-1]["generated_text"]}")
-            raw_responses.append(resp)
-            if resp[-1]["generated_text"].strip()[0] == "y":
-                clause_resp.append(cat)
-        
-        if clause_resp == []:
-            clause_resp.append("fair")
-        
-        responses.append(clause_resp)
-    
-    if debug > 0:
-        return responses, raw_responses
-    else:
-        return responses
 
 def compute_f1_score(responses, labels, label_to_id, debug=0):
     y_true, y_pred = [], []
@@ -146,10 +101,12 @@ def compute_f1_score(responses, labels, label_to_id, debug=0):
     report = classification_report(y_true, y_pred, zero_division=0, target_names=label_to_id.keys(), output_dict=True)
     return {"report": report}
 
+
 def write_res_to_file(model_name, model_score, output_dir):
     os.makedirs(f"out/{output_dir}/", exist_ok=True)
     with open(f'out/{output_dir}/{model_name}_score.json', 'w') as file: 
         file.write(json.dumps(model_score))
+
 
 def read_examples_from_json(exclude_fair):
     with open("utils/examples.json", "r") as f:
@@ -161,89 +118,129 @@ def read_examples_from_json(exclude_fair):
     else:
         return per_category_examples
 
-def get_base_prompt(prompt_type, num_shots=None):
+
+def get_prompt_manager(prompt_type, num_shots=None):
     if prompt_type == "zero":
-        base_prompt = ZERO_PROMPT_1
+        prompt_manager = StandardPrompt(ZERO_PROMPT_1, max_new_tokens=30)
     elif prompt_type == "zero_old":
-        base_prompt = ZERO_PROMPT_0
+        prompt_manager = StandardPrompt(ZERO_PROMPT_0, max_new_tokens=30)
     # elif prompt_type == "multi_few_half":
-    #     base_prompt = FewMultiPrompt(MULTI_PROMPT_FEW, LABEL_TO_ID, num_shots=2, only_unfair_examples=False)
+    #     prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, LABEL_TO_ID, num_shots=2, only_unfair_examples=False)
     elif prompt_type == "multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        base_prompt = FewMultiPrompt(MULTI_PROMPT_FEW, LABEL_TO_ID, per_category_examples, num_shots=num_shots, only_unfair_examples=True)
+        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, LABEL_TO_ID, per_category_examples, num_shots=num_shots, only_unfair_examples=True, max_new_tokens=2)
     elif prompt_type == "multi_zero":
-        base_prompt = ZeroMultiPrompt(MULTI_PROMPT, LABEL_TO_ID)
+        prompt_manager = ZeroMultiPrompt(MULTI_PROMPT, LABEL_TO_ID, max_new_tokens=2)
     
-    return base_prompt
+    return prompt_manager
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, debug=0):
+
+def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots):
+    model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
+    model_has_chat_template = not tokenizer.chat_template is None
+    prompt_manager = get_prompt_manager(prompt_type, num_shots)
+
+    if model_has_chat_template:
+        return PipelinePromptConsumer(prompt_manager, model, tokenizer)
+    else:
+        return NoTemplatePromptConsumer(prompt_manager, model, tokenizer)
+
+
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, debug=0):
     label_to_id = LABEL_TO_ID
     bnb_config = get_bnb_config(quant)
     models_score = {}
 
-    base_prompt = get_base_prompt(prompt_type, num_shots)
+    # prompt_manager = get_prompt_manager(prompt_type, num_shots)
 
     for model_name, model_card in endpoints.items():
-        print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} quantization ------------")
-        model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
-        pipe = create_pipeline(model, tokenizer)
-        # Evaluate on test dataset
-        test_responses = generate_responses(pipe, ds_test, base_prompt, temp=0, debug=debug)
+        print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} bit quantization ------------")
+
+        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots)
+        test_responses = prompt_consumer.generate_responses(ds_test, debug)
         test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, debug)
 
-        if ds_val != None:
-            # Evaluate on validation dataset
-            validation_responses = generate_responses(pipe, ds_val, base_prompt, temp=0)
-            validation_report = compute_f1_score(validation_responses, ds_test["labels"], label_to_id)
-        else:
-            validation_report = {"report": {}}
+        validation_report = {"report": {}}
 
         models_score[model_name] = {
             "test": test_report,
             "validation": validation_report
         }
 
-        output_dir = prompt_type+"_"+str(num_shots) if prompt_type in ["multi_few"] else prompt_type
-        write_res_to_file(model_name, {model_name: {"test": test_report,"validation": validation_report}}, output_dir)
-        
-        # Free memory
-        del model, pipe, tokenizer
-        gc.collect()
-        torch.cuda.empty_cache()
+        if write_to_file:
+            output_dir = prompt_type+"_"+str(num_shots) if prompt_type in ["multi_few"] else prompt_type
+            write_res_to_file(model_name, {model_name: {"test": test_report,"validation": validation_report}}, output_dir)
+
+        prompt_consumer.free_memory()
 
     return models_score
 
-def api_query(endpoint, payload, debug=0):
-    """
-    Send a POST request to the specified API endpoint with the given payload.
 
-    Args:
-        endpoint (str): The URL of the API endpoint to send the request to.
-        payload (dict): The JSON payload to include in the POST request.
-
-    Returns:
-        dict: The JSON response from the API as a dictionary.
-
-    Raises:
-        SystemExit: If a request exception occurs, the function raises a SystemExit with the exception message.
-    """
-
-    if debug == 1:
-        print(f"Running query on model {extract_model_name(endpoint)}")
-    elif debug == 2:
-        print(f"Running query on model {extract_model_name(endpoint)}\n Payload = {payload}")
-
-
-    try:
-        response = requests.post(endpoint, headers=HEADERS, json=payload)
-    except requests.exceptions.RequestException as e: 
-        raise SystemExit(e)
-    return response.json()
-
-
-class MultiPrompt(ABC):
-    def __init__(self, prompt_template, label_to_id) -> None:
+class GenericPromptManager(ABC):
+    def __init__(self, prompt_template, max_new_tokens):
         self.prompt_template = prompt_template
+        self.max_new_tokens = max_new_tokens
+    
+    @abstractmethod
+    def get_prompts(self, clause) -> list:
+        pass
+
+    @abstractmethod
+    def format_pipeline_response(self, raw_response):
+        pass
+
+class PromptConsumer(ABC):
+    def __init__(self, prompt_manager: GenericPromptManager, model, tokenizer):
+        self.prompt_manager = prompt_manager
+        self.model = model
+        self.tokenizer = tokenizer
+    
+    def generate_responses(self, dataset, debug=0):
+        responses = []
+        for clause in tqdm(dataset["text"], total=len(dataset)):
+
+            model_input = self.format_input(clause, debug)
+            raw_output = self.run_model(model_input)
+            response = self.format_response(raw_output)
+
+            if debug > 1:
+                print(f"{model_input=}")
+                print(f"{raw_output=}")
+                print(f"{response=}")
+                
+            responses.append(response)
+
+        return responses
+
+    @abstractmethod
+    def format_input(self, clause):
+        pass
+
+    @abstractmethod
+    def run_model(self, model_input):
+        pass
+    
+    @abstractmethod
+    def format_response(self, raw_output):
+        pass
+
+    def free_memory(self):
+        del self.model, self.tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
+
+class StandardPrompt(GenericPromptManager):
+    def get_prompts(self, clause):
+        return [self.prompt_template + clause]
+
+    def format_pipeline_response(self, raw_response):
+        clean_response = raw_response[0][0]["generated_text"].strip()
+        return clean_response
+
+class MultiPrompt(GenericPromptManager, ABC):
+    def __init__(self, prompt_template, label_to_id, max_new_tokens) -> None:
+        super().__init__(prompt_template, max_new_tokens)
+
         self.category_definitions = {k:"" for k in label_to_id.keys() if k != "fair"}
         self.set_descriptions()
 
@@ -258,63 +255,120 @@ class MultiPrompt(ABC):
         self.category_definitions["ter"] = "A clause is unfair whenever it states that the provider has the right to suspend and/or terminate the service, the contract, or the consumer’s account for any or no reason, with or without notice"
         self.category_definitions["use"] = "A clause is unfair whenever it states that the consumer is bound by the terms of use/service simply by using the service, downloading the app, or visiting the website"
         self.category_definitions["pinc"] = "A clause is unfair if it explicitly state that, simply by using the service, the consumer consents to the processing of personal data as described in the privacy policy, and/or state that the privacy policy is incorporated into and forms part of the terms, especially if it is preceded by a 'contract by using' clause"
+
+    def format_pipeline_response(self, raw_response):
+        clean_resp = [generated[-1]["generated_text"].strip() for generated in raw_response]
+        clause_resp = []
+
+        for resp, cat in zip(clean_resp, self.category_definitions.keys()):
+            if resp == "y":
+                clause_resp.append(cat)
         
-        # Old Definitions
-        # self.category_definitions["j"] = "The jurisdiction clause stipulates what courts will have the competence to adjudicate disputes under the contract. Jurisdiction clauses stating that any judicial proceeding takes a residence away (i.e., in a different city, different country) are unfair."
-        # self.category_definitions["law"] = "The choice of law clause specifies what law will govern the contract, meaning also what law will be applied in potential adjudication of a dispute arising under the contract. In every case where the clause defines the applicable law as the law of the consumer’s country of residence, it is considered as unfair."
-        # self.category_definitions["ltd"] = "The limitation of liability clause stipulates that the duty to pay damages is limited or excluded for certain kinds of losses under certain conditions. Clauses that reduce, limit, or exclude the liability of the service provider are marked as unfair."
-        # self.category_definitions["ch"] = "The unilateral change clause specifies the conditions under which the service provider could amend and modify the terms of service and/or the service itself. Such clauses are always considered as unfair."
-        # self.category_definitions["ter"] = "The unilateral termination clause gives the provider the right to suspend and/or terminate the service and/or the contract and sometimes details the circumstances under which the provider claims to have a right to do so. Unilateral termination clauses that specify reasons for termination are marked as unfair. Clauses stipulating that the service provider may suspend or terminate the service at any time for any or no reasons and/or without notice are marked as unfair."
-        # self.category_definitions["use"] = "The contract by using clause stipulates that the consumer is bound by the terms of use of a specific service simply by using the service, without even being required to mark that they have read and accepted them. These clauses are marked as unfair."
-        # self.category_definitions["cr"] = "The content removal clause gives the provider a right to modify/delete user’s content, including in-app purchases, and sometimes specifies the conditions under which the service provider may do so. Clauses that indicate conditions for content removal are marked as unfair. Clauses stipulating that the service provider may remove content at their full discretion, and/or at any time for any or no reasons and/or without notice nor the possibility to retrieve the content, are marked as clearly unfair."
-        # self.category_definitions["a"] = "The arbitration clause requires or allows the parties to resolve their disputes through an arbitration process before the case could go to court. Clauses stipulating that the arbitration should take place in a state other than the state of the consumer’s residence and/or be based not on law but on the arbiter’s discretion are marked as unfair. Clauses defining arbitration as fully optional would be marked as fair."
-        # self.category_definitions["pinc"] = "Identify clauses stating that consumers consent to the privacy policy simply by using the service. Such clauses are considered unfair."
+        if clause_resp == []:
+            clause_resp.append("fair")
 
+        return clause_resp
 
-    @abstractmethod
-    def get_prompts(self, clause):
-        pass
+    def format_notemplate_response(self, raw_response):
+        clean_resp = [generated[-1]["generated_text"].strip().lower() for generated in raw_response]
+        clause_resp = []
+
+        for resp, cat in zip(clean_resp, self.category_definitions.keys()):
+            if resp == "y" or resp == "yes":
+                clause_resp.append(cat)
+        
+        if clause_resp == []:
+            clause_resp.append("fair")
+
+        # print(clause_resp)
+        return clause_resp
+
+        # raise NotImplementedError(f"{raw_response}")        
 
 class ZeroMultiPrompt(MultiPrompt):
-    def __init__(self, prompt_template, label_to_id):
-        super().__init__(prompt_template, label_to_id)
-        # self.prompt_template = prompt_template
 
-
-    def get_prompts(self, clause):
-        dict_of_prompts = {}
-        for cat, definition in self.category_definitions.items():
-            dict_of_prompts[cat] = self.prompt_template.format(cat_descr=definition, clause=clause)
-        return dict_of_prompts
+    def get_prompts(self, clause, debug=0):
+        list_of_prompts = []
+        for definition in self.category_definitions.values():
+            formatted_prompt = self.prompt_template.format(cat_descr=definition, clause=clause)
+            list_of_prompts.append(formatted_prompt)
+            if debug > 0:
+                print(f"{definition=}")
+                print(f"{formatted_prompt=}")
+        return list_of_prompts
 
 class FewMultiPrompt(MultiPrompt):
-    def __init__(self, prompt_template, label_to_id, per_category_examples, num_shots, only_unfair_examples):
-        super().__init__(prompt_template, label_to_id)
+    def __init__(self, prompt_template, label_to_id, per_category_examples, num_shots, only_unfair_examples, max_new_tokens):
+        super().__init__(prompt_template, label_to_id, max_new_tokens)
 
         self.per_category_examples = per_category_examples
         self.only_unfair_examples = only_unfair_examples
         self.num_shots = num_shots
 
     def get_prompts(self, clause, debug=0):
-        dict_of_prompts = {}
+        list_of_prompts = []
         
         for category in self.category_definitions.keys():
             category_definition = self.category_definitions[category]
 
             if self.only_unfair_examples:
-                examples = "\n".join([f"Clause: {ex}\nResponse: y" for ex in self.per_category_examples[category][:self.num_shots]])
+                examples = "\n".join([f"Clause: {ex}\nResponse: Yes" for ex in self.per_category_examples[category][:self.num_shots]])
             else:
                 # first positive, second negative
                 # examples = "\n".join([f"Clause: {self.per_category_examples[category][0]}\n Response: y", f"Clause: {self.per_category_examples[category][1]}\n Response: n"])
                 raise NotImplementedError()
 
-            dict_of_prompts[category] = self.prompt_template.format(cat_descr=category_definition, examples=examples, clause=clause)
+            formatted_prompt = self.prompt_template.format(cat_descr=category_definition, examples=examples, clause=clause)
+            list_of_prompts.append(formatted_prompt)
 
-            if debug > 0:
+            if debug > 1:
                 print(f"EXAMPLES: \n {examples}")
                 print(f"DEFINITION: \n {category_definition}")
-                print(f"PROMPT: \n {dict_of_prompts[category]}")
+                print(f"PROMPT for category '{category}': \n {formatted_prompt}")
 
-        return dict_of_prompts
+        return list_of_prompts
 
-# python prompt_test.py -type multi_few -all -quant None -num_shots 2 > few_2 2>&1; python pretty_print_report.py -type multi_few_2; python prompt_test.py -type multi_few -all -quant None -num_shots 3 > few_3 2>&1; python pretty_print_report.py -type multi_few_3; python prompt_test.py -type multi_few -all -quant None -num_shots 4 > few_4 2>&1; python pretty_print_report.py -type multi_few_4
+class PipelinePromptConsumer(PromptConsumer):
+    def __init__(self, prompt_manager, model, tokenizer):
+        super().__init__(prompt_manager, model, tokenizer)
+
+        self.pipeline = self.create_pipeline()
+    
+    def create_pipeline(self):
+        pipeline = transformers.pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+
+        # For older transformers versions
+        pipeline.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        pipeline.tokenizer.padding_side = 'left'
+        return pipeline
+
+    def format_input(self, clause, debug=0):
+        prompt_list = self.prompt_manager.get_prompts(clause, debug)
+        messages = [[{"role": "user", "content": prompt}] for prompt in prompt_list]
+        
+        if debug > 0:
+            print(f"{prompt_list=}")
+            print(f"{messages=}")
+
+        return messages
+
+    def run_model(self, model_input):
+        raw_output = self.pipeline(model_input, batch_size=4, max_new_tokens=self.prompt_manager.max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+        return raw_output
+
+    def format_response(self, raw_output):
+        return self.prompt_manager.format_pipeline_response(raw_output)
+    
+    def free_memory(self):
+        del self.pipeline
+        super().free_memory()
+
+
+class NoTemplatePromptConsumer(PipelinePromptConsumer):
+    pass
+
