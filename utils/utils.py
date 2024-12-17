@@ -123,7 +123,7 @@ def read_examples_from_json(exclude_fair):
         return per_category_examples
 
 
-def get_prompt_manager(prompt_type, label_to_id, num_shots=None):
+def get_prompt_manager(prompt_type, label_to_id, num_shots, use_def):
     if prompt_type == "zero":
         prompt_manager = StandardPrompt(ZERO_PROMPT_1, max_new_tokens=30)
     elif prompt_type == "zero_old":
@@ -132,11 +132,11 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots=None):
     #     prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, num_shots=2, only_unfair_examples=False)
     elif prompt_type == "multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, per_category_examples, num_shots=num_shots, only_unfair_examples=True, max_new_tokens=2)
+        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2, use_definitions=use_def)
         prompt_manager.set_response_type(positive="y", negative="n")
-    elif prompt_type == "multi_few_no_templ":
+    elif prompt_type == "bare_multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW_NO_TEMPL, label_to_id, per_category_examples, num_shots=num_shots, only_unfair_examples=True, max_new_tokens=2)
+        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW_NO_TEMPL, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2, use_definitions=use_def)
         prompt_manager.set_response_type(positive="Yes", negative="No")
         # prompt_manager.set_response_type(positive="y", negative="n")
     elif prompt_type == "multi_zero":
@@ -146,10 +146,10 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots=None):
     return prompt_manager
 
 
-def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id):
+def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, use_def, label_to_id):
     model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
     model_has_chat_template = not tokenizer.chat_template is None
-    prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots)
+    prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots, use_def)
 
     if prompt_type == "multi_few_no_templ" or not model_has_chat_template:
         return BareModelPromptConsumer(prompt_manager, model, tokenizer)
@@ -158,9 +158,8 @@ def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num
         return PipelinePromptConsumer(prompt_manager, model, tokenizer)
 
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, unfair_only, debug=0):
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, unfair_only, use_def, debug=0):
     label_to_id = LABELS.labels_to_id(unfair_only)
-    print(label_to_id)
 
     bnb_config = get_bnb_config(quant)
     models_score = {}
@@ -170,7 +169,7 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, w
     for model_name, model_card in endpoints.items():
         print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} bit quantization ------------")
 
-        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id)
+        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, use_def, label_to_id)
         test_responses = prompt_consumer.generate_responses(ds_test, debug)
         test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, unfair_only, debug)
 
@@ -216,9 +215,9 @@ class MultiPrompt(GenericPromptManager, ABC):
         super().__init__(prompt_template, max_new_tokens)
 
         self.category_definitions = {k:"" for k in label_to_id.keys() if k != "fair"}
-        self.set_descriptions()
+        self.init_definitions()
 
-    def set_descriptions(self):
+    def init_definitions(self):
         # New Definitions
         self.category_definitions["a"] = "A clause is unfair whenever arbitration is binding and not optional, and/or should take place in a country different from the consumer’s place of residence, and/or be based not on law but on other arbitration rules or the arbiter’s discretion."
         self.category_definitions["ch"] = "A clause is unfair when it specifies if and under what conditions the provider can unilaterally change or modify the contract and/or the service"
@@ -241,16 +240,19 @@ class MultiPrompt(GenericPromptManager, ABC):
     def negative_response(self):
         return self.response_type["negative"]
 
+    def isResponsePositive(self, response):
+        return response == self.positive_response
+
     def format_response(self, clean_response):
         # clean_resp = [generated[-1]["generated_text"].strip() for generated in raw_response]
         clause_resp = []
 
         for resp, cat in zip(clean_response, self.category_definitions.keys()):
-            if resp == self.positive_response:
+            if self.isResponsePositive(resp):
                 clause_resp.append(cat)
             elif resp != self.negative_response:
-                print("QUA", resp)
-        
+                warnings.warn(f"Response {resp} different from both positve {self.positive_response} and negative {self.negative_response} response.")
+
         if clause_resp == []:
             clause_resp.append("fair")
 
@@ -269,12 +271,15 @@ class ZeroMultiPrompt(MultiPrompt):
         return list_of_prompts
 
 class FewMultiPrompt(MultiPrompt):
-    def __init__(self, prompt_template, label_to_id, per_category_examples, num_shots, only_unfair_examples, max_new_tokens):
+    def __init__(self, prompt_template, label_to_id, per_category_examples, num_shots, only_unfair_examples, max_new_tokens, use_definitions):
         super().__init__(prompt_template, label_to_id, max_new_tokens)
 
         self.per_category_examples = per_category_examples
         self.only_unfair_examples = only_unfair_examples
         self.num_shots = num_shots
+
+        if not use_definitions:
+            self.category_definitions = {k: "" for k in self.category_definitions.keys()}
     
     def get_prompts(self, clause, debug=0):
         list_of_prompts = []
@@ -283,7 +288,8 @@ class FewMultiPrompt(MultiPrompt):
             category_definition = self.category_definitions[category]
 
             if self.only_unfair_examples:
-                examples = "\n".join([f"Clause: {ex}\nResponse: {self.positive_response}" for ex in self.per_category_examples[category][:self.num_shots]])
+                examples = "\n".join([f"Clause: {ex}\nResponse: {self.positive_response}" 
+                                      for ex in self.per_category_examples[category][:self.num_shots]])
             else:
                 # first positive, second negative
                 # examples = "\n".join([f"Clause: {self.per_category_examples[category][0]}\n Response: y", f"Clause: {self.per_category_examples[category][1]}\n Response: n"])
@@ -293,9 +299,9 @@ class FewMultiPrompt(MultiPrompt):
             list_of_prompts.append(formatted_prompt)
 
             if debug > 1:
-                print(f"EXAMPLES: \n {examples}")
-                print(f"DEFINITION: \n {category_definition}")
-                print(f"PROMPT for category '{category}': \n {formatted_prompt}")
+                print(f"EXAMPLES: \n{examples}")
+                print(f"DEFINITION: \n{category_definition}")
+                print(f"PROMPT for category '{category}': \n{formatted_prompt}")
 
         return list_of_prompts
 

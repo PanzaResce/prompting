@@ -43,7 +43,7 @@ def parse_arguments():
         type=str,
         required=True,
         metavar="prompting_technique",
-        choices=["zero", "zero_old", "multi_zero", "multi_few", "multi_few_no_templ"],
+        choices=["zero", "zero_old", "multi_zero", "multi_few", "bare_multi_few"],
         help="Specify the prompting technique to use"
     )
 
@@ -64,6 +64,13 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-use_def",
+        action="store_true",
+        default=False,
+        help="Use a -subset of only unfair clauses"
+    )
+
+    parser.add_argument(
         "-unfair_only",
         action="store_true",
         help="Use a -subset of only unfair clauses"
@@ -71,14 +78,18 @@ def parse_arguments():
 
     args = parser.parse_args()
 
+    if args.type in ["multi_few", "bare_multi_few"] and args.num_shots is None:
+        parser.error("-num_shots is required when -type is 'multi_few'")
+    
+    # Print info
     if not args.num_shots is None:
         print(f"Using {args.num_shots} shots")
-
-    if args.type in ["multi_few", "multi_few_no_templ"] and args.num_shots is None:
-        parser.error("-num_shots is required when -type is 'multi_few'")
     
     if args.unfair_only and args.subset:
         print(f"Picking only unfair clauses from the {args.subset} subset of the dataset")
+
+    if not args.use_def:
+        print("Not using definition in the prompt")
 
     return args
 
@@ -103,11 +114,11 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.debug)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.use_def, args.debug)
         print(models_score)
 
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.debug)
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.use_def, args.debug)
         print(model_score)
