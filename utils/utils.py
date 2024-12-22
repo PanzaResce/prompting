@@ -4,6 +4,7 @@ from sklearn.metrics import classification_report
 from .config import *
 from .prompt_manager import *
 from .prompt_consumer import * 
+from .svm import SVM
 
 TOKEN= "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"
 HEADERS = {"Authorization": f"Bearer {TOKEN}", 'Cache-Control': 'no-cache'}
@@ -30,9 +31,11 @@ def get_bnb_config(num_bit: str):
     else:
         return
 
-def load_dataset(path, split):
+def load_dataset(path, split=None):
     ds = load_from_disk(path)
-    return ds[split]
+    if split:
+        return ds[split]
+    return ds
 
 def pick_only_unfair_clause(ds_test, num_elements=None):    
     new_ds_test = {"text": [], "labels": []}
@@ -59,7 +62,7 @@ def load_model_and_tokenizer(model_card, bnb_config):
     return model, tokenizer
 
 
-def compute_f1_score(responses, labels, label_to_id, unfair_only, debug=0):
+def compute_f1_score(responses, labels, label_to_id, debug=0):
     y_true, y_pred = [], []
     for r, label in zip(responses, labels):
         if not isinstance(r, list):
@@ -73,10 +76,7 @@ def compute_f1_score(responses, labels, label_to_id, unfair_only, debug=0):
         true_sample = [0] * len(label_to_id)
         for t in label:
             # Labels in the original dataset range from 0 to 9 where 0 is fair
-            if unfair_only:
-                true_sample[t-1] = 1
-            else:
-                true_sample[t] = 1
+            true_sample[t] = 1
 
         pred_sample = [0] * len(label_to_id)
         for t in resp_tags:
@@ -86,8 +86,6 @@ def compute_f1_score(responses, labels, label_to_id, unfair_only, debug=0):
                 if debug > 2:
                     print(f"'{t}' is not a valid tag ({list(label_to_id.keys())})")
 
-        print(f"{true_sample=}")
-        print(f"{pred_sample=}")
         if debug > 0:
             print(f"Extracted tags: {resp_tags}")
 
@@ -122,7 +120,7 @@ def read_examples_from_json(exclude_fair):
         return per_category_examples
 
 
-def get_prompt_manager(prompt_type, label_to_id, num_shots, use_def):
+def get_prompt_manager(prompt_type, label_to_id, num_shots):
     if prompt_type == "zero":
         prompt_manager = StandardPrompt(ZERO_PROMPT_1, max_new_tokens=30)
     elif prompt_type == "zero_old":
@@ -131,34 +129,50 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots, use_def):
     #     prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, num_shots=2, only_unfair_examples=False)
     elif prompt_type == "multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2, use_definitions=use_def)
-        prompt_manager.set_response_type(positive="y", negative="n")
+        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2)
+        prompt_manager.set_response_type(positive="yes", negative="no")
     elif prompt_type == "bare_multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW_NO_TEMPL, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2, use_definitions=use_def)
+        prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW_NO_TEMPL, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2)
         prompt_manager.set_response_type(positive="Yes", negative="No")
         # prompt_manager.set_response_type(positive="y", negative="n")
     elif prompt_type == "multi_zero":
         prompt_manager = ZeroMultiPrompt(MULTI_PROMPT, label_to_id, max_new_tokens=2)
-        prompt_manager.set_response_type(positive="y", negative="n")
-    
+        prompt_manager.set_response_type(positive="yes", negative="no")
+    elif prompt_type == "prompt_chain":
+        per_category_examples = read_examples_from_json(exclude_fair=True)
+        prompt_manager_0 = ZeroMultiPrompt(PROMPT_CHAIN_0, label_to_id, max_new_tokens=5)
+        prompt_manager_0.set_response_type(positive="yes", negative="no")
+
+        prompt_manager_1 = FewMultiPrompt(PROMPT_CHAIN_1, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=5)
+        prompt_manager_1.set_response_type(positive="yes", negative="no")
+
+        prompt_manager = [prompt_manager_0, prompt_manager_1]
+    else:
+        return None
+
     return prompt_manager
 
 
-def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, use_def, label_to_id):
+def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id):
     model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
     model_has_chat_template = not tokenizer.chat_template is None
-    prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots, use_def)
+    prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots)
 
-    if prompt_type == "multi_few_no_templ" or not model_has_chat_template:
+    if prompt_type == "prompt_chain":
+        return PromptChainConsumer(prompt_manager, model, tokenizer)
+    elif prompt_type == "svm_few":
+        prompt_manager = get_prompt_manager("multi_few", label_to_id, num_shots)
+        svm = SVM(load=True)
+        return SVMPromptConsumer(prompt_manager, model, tokenizer, svm)
+    elif prompt_type == "multi_few_no_templ" or not model_has_chat_template:
         return BareModelPromptConsumer(prompt_manager, model, tokenizer)
-        # return NoTemplatePromptConsumer(prompt_manager, model, tokenizer)
     else:
         return PipelinePromptConsumer(prompt_manager, model, tokenizer)
 
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, unfair_only, use_def, debug=0):
-    label_to_id = LABELS.labels_to_id(unfair_only)
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, debug=0):
+    label_to_id = LABELS.labels_to_id()
 
     bnb_config = get_bnb_config(quant)
     models_score = {}
@@ -168,9 +182,9 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, w
     for model_name, model_card in endpoints.items():
         print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} bit quantization ------------")
 
-        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, use_def, label_to_id)
+        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id)
         test_responses = prompt_consumer.generate_responses(ds_test, debug)
-        test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, unfair_only, debug)
+        test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, debug)
 
         validation_report = {"report": {}}
 

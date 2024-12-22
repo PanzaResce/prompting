@@ -1,8 +1,8 @@
-from itertools import tee
 from huggingface_hub import login
 
-import argparse, json
-from utils.utils import *
+import argparse
+from utils.utils import pick_only_unfair_clause, evaluate_models, load_dataset, extract_model_name
+from utils.config import ENDPOINTS
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Run evaluation on specified models.")
@@ -35,7 +35,7 @@ def parse_arguments():
         required=False,
         metavar="debug_level",
         default=0,
-        help="Specify to level of debug"
+        help="Specify the level of debug"
     )
 
     parser.add_argument(
@@ -43,7 +43,7 @@ def parse_arguments():
         type=str,
         required=True,
         metavar="prompting_technique",
-        choices=["zero", "zero_old", "multi_zero", "multi_few", "bare_multi_few"],
+        choices=["zero", "zero_old", "multi_zero", "multi_few", "bare_multi_few", "prompt_chain", "svm_few"],
         help="Specify the prompting technique to use"
     )
 
@@ -64,13 +64,6 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "-use_def",
-        action="store_true",
-        default=False,
-        help="Use a -subset of only unfair clauses"
-    )
-
-    parser.add_argument(
         "-unfair_only",
         action="store_true",
         help="Use a -subset of only unfair clauses"
@@ -88,9 +81,6 @@ def parse_arguments():
     if args.unfair_only and args.subset:
         print(f"Picking only unfair clauses from the {args.subset} subset of the dataset")
 
-    if not args.use_def:
-        print("Not using definition in the prompt")
-
     return args
 
 if __name__ == "__main__":
@@ -99,7 +89,6 @@ if __name__ == "__main__":
     print("Token login")
     login("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")
 
-    print("Loading dataset")
     ds_test = load_dataset("./142_dataset/tos.hf/", split="test")
 
     if args.subset != None:
@@ -114,11 +103,10 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.use_def, args.debug)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
         print(models_score)
-
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.unfair_only, args.use_def, args.debug)
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
         print(model_score)

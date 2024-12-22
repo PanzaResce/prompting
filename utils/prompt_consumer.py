@@ -2,10 +2,10 @@ import transformers, torch,gc, warnings
 from transformers.utils import ModelOutput
 from tqdm import tqdm
 from abc import ABC, abstractmethod
-from .prompt_manager import GenericPromptManager
+from .config import LABELS, CHAIN_0_DEF, CHAIN_1_DEF
 
 class PromptConsumer(ABC):
-    def __init__(self, prompt_manager: GenericPromptManager, model, tokenizer):
+    def __init__(self, prompt_manager, model, tokenizer):
         self.prompt_manager = prompt_manager
         self.model = model
         self.tokenizer = tokenizer
@@ -26,6 +26,9 @@ class PromptConsumer(ABC):
             responses.append(response)
 
         return responses
+
+    def clean_response(self, raw_output):
+        return [generated[-1]["generated_text"].strip().lower() for generated in raw_output]
 
     @abstractmethod
     def format_input(self, clause):
@@ -145,3 +148,89 @@ class BareModelPromptConsumer(PromptConsumer):
         
         # print(clean_resp)
         return self.prompt_manager.format_response(clean_resp)
+
+class SVMPromptConsumer(PipelinePromptConsumer):
+    def __init__(self, prompt_manager, model, tokenizer, svm):
+        super().__init__(prompt_manager, model, tokenizer)
+        self.svm = svm
+    
+    def generate_responses(self, dataset, debug=0):
+        unfair_from_svm = self.svm.predict(dataset)
+        unfair_from_svm = [1 if pred == 1 else 0 for pred in unfair_from_svm]
+
+        responses = []
+        index = 0
+        print(f"Unfair clauses filtered by SVM: {sum(unfair_from_svm)}")
+        for clause in tqdm(dataset["text"], total=len(dataset)):
+            if unfair_from_svm[index] == 1:
+                model_input = self.format_input(clause, debug)
+                raw_output = self.run_model(model_input)
+                response = self.format_response(raw_output)
+
+                if debug > 0:
+                    print(f"{model_input=}")
+                    print(f"{raw_output=}")
+                    print(f"{response=}")
+            else:
+                response = ["fair"]
+                
+            responses.append(response)
+            index +=1
+
+        return responses
+
+class PromptChainConsumer(PipelinePromptConsumer):
+    def __init__(self, prompt_manager, model, tokenizer):
+        super().__init__(prompt_manager, model, tokenizer)
+        self.prompt_manager[0].init_definitions(CHAIN_0_DEF)
+        self.prompt_manager[1].init_definitions(CHAIN_1_DEF)
+        # self.prompt_manager[1].init_definitions({k:name for k, name in zip(CHAIN_1_DEF.keys(), LABELS.labels_full_name[1:])})
+
+    def first_prompt_response_is_fair(self, first_response):
+        if first_response[0] == "fair":
+            return True
+        return False
+
+    def format_input(self, clause, debug=0):
+        model_input_list = []
+        for manager in self.prompt_manager:
+            prompt_list = manager.get_prompts(clause)
+            messages = [[{"role": "user", "content": prompt}] for prompt in prompt_list]
+
+            model_input_list.append(messages)
+        return model_input_list
+    
+    def run_model(self, model_input: list):
+        raw_output_0 = self.pipeline(model_input[0], batch_size=4, max_new_tokens=self.prompt_manager[0].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+        clean_output_0 = self.clean_response(raw_output_0)
+        resp_0 = self.prompt_manager[0].format_response(clean_output_0)
+        # print(f"{resp_0=}")
+        # print(f"{raw_output_0=}")
+
+        if self.first_prompt_response_is_fair(resp_0):
+            final_resp = resp_0
+        else:
+            index_to_keep = [i for cat in resp_0 for i in range(len(LABELS.get_unfair_labels())) if cat == LABELS.labels[i+1]]
+            candidate_positive_clauses = [model_input[1][i] for i in index_to_keep]   # i-1 because we don't have the "fair" case in the input
+            # print(f"{candidate_positive_clauses=}")
+            raw_output_1 = self.pipeline(candidate_positive_clauses, batch_size=4, max_new_tokens=self.prompt_manager[1].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+            # clean_output_1 = [generated[-1]["generated_text"].strip() for generated in raw_output_1]
+            clean_output_1 = self.clean_response(raw_output_1)
+            # print(f"{raw_output_1=}")
+            # print(f"{clean_output_1=}")
+            # print(f"{index_to_keep=}")
+
+            categories = [self.prompt_manager[1].negative_response]*len(LABELS.get_unfair_labels())
+            for index, resp in zip(index_to_keep, clean_output_1):
+                categories[index] = resp
+            print(f"{categories=}")
+            resp_1 = self.prompt_manager[1].format_response(categories)
+            # print(f"{raw_output_1=}")
+            # print(f"{resp_1=}")
+            final_resp = resp_1
+
+        # print(f"{final_resp=}")
+        return final_resp
+
+    def format_response(self, raw_output):
+        return raw_output
