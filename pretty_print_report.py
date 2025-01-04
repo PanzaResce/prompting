@@ -51,6 +51,9 @@ if __name__ == "__main__":
 
     directory_path = f"out/{args.dir}"
     for filename in os.listdir(directory_path):
+        ext = filename.split(".")[-1]
+        if ext != "json":
+            continue
         file_path = os.path.join(directory_path, filename)
         with open(file_path, 'r') as file:
             report = json.load(file)

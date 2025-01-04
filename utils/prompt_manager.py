@@ -40,6 +40,17 @@ class MultiPrompt(GenericPromptManager, ABC):
             self.category_definitions["ter"] = "A clause is unfair whenever it states that the provider has the right to suspend and/or terminate the service, the contract, or the consumer’s account for any or no reason, with or without notice"
             self.category_definitions["use"] = "A clause is unfair whenever it states that the consumer is bound by the terms of use/service simply by using the service, downloading the app, or visiting the website"
             self.category_definitions["pinc"] = "A clause is unfair if it explicitly state that, simply by using the service, the consumer consents to the processing of personal data as described in the privacy policy, and/or state that the privacy policy is incorporated into and forms part of the terms, especially if it is preceded by a 'contract by using' clause"
+            
+            # Old
+            # self.category_definitions["j"] = "The jurisdiction clause specifies what courts have the competence to adjudicate disputes. A clause is unfair whenever it states that judicial proceedings take place in a location different from the consumer's place of residence (e.g., in a different city or country)."
+            # self.category_definitions["law"] = "The choice of law clause specifies what law will govern the contract and be applied in potential disputes. A clause is unfair whenever it states that the applicable law is different from the law of the consumer’s place of residence."
+            # self.category_definitions["ltd"] = "The limitation of liability clause specifies for what actions/events and under what circumstances the providers exclude, limit, or reduce their liability, the duty to compensate damages, and/or include a blanket phrase like 'to the fullest extent permissible by law.' Such a clause is always unfair, unless it pertains to a force majeure case."
+            # self.category_definitions["ch"] = "The unilateral change clause specifies if and under what conditions the provider can unilaterally change and modify the contract and/or the service. Such a clause is always unfair."
+            # self.category_definitions["ter"] = "The unilateral termination clause states that the provider has the right to suspend and/or terminate the service, the contract, or the consumer’s account for certain reasons, or at any time, for any or no reason, with or without notice. Such a clause is always unfair."
+            # self.category_definitions["use"] = "The contract by using clause states that the consumer is bound by the terms of use/service simply by using the service, downloading the app, or visiting the website. Such a clause is always unfair."
+            # self.category_definitions["cr"] = "The content removal clause gives the provider the right to modify, delete, or remove the user’s content, including in-app purchases, under specific conditions or at any time, at their full discretion, for any or no reason, with or without notice or the possibility of retrieving the content. Such a clause is always unfair."
+            # self.category_definitions["a"] = "The arbitration clause requires or allows the parties to resolve their disputes through arbitration before the case can go to court. A clause is unfair whenever the arbitration is binding and not optional, and/or should take place in a country different from the consumer’s place of residence, and/or be based not on law but on other arbitration rules or the arbiter’s discretion."
+            # self.category_definitions["pinc"] = "The privacy included clause identifies clauses that (a) explicitly state that, by using the service, the consumer consents to the processing of personal data as described in the privacy policy, and/or (b) incorporate the privacy policy into the terms, particularly if preceded by a contract by using clause. Such clauses are always unfair."
         else:
             # Init from dict
             for k in self.category_definitions.keys():
@@ -69,7 +80,7 @@ class MultiPrompt(GenericPromptManager, ABC):
             if self.isResponsePositive(resp):
                 clause_resp.append(cat)
             elif not self.isResponseNegative(resp):
-                warnings.warn(f"Response '{resp}' different from both positve '{self.positive_response}' and negative '{self.negative_response}' response.")
+                warnings.warn(f"Response '{resp}' different from both positive '{self.positive_response}' and negative '{self.negative_response}' response.")
 
         if clause_resp == []:
             clause_resp.append("fair")

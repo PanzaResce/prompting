@@ -2,8 +2,9 @@ ENDPOINTS = {
     # "llama3": "meta-llama/Llama-3.2-3B-Instruct",
     # "llama3": "meta-llama/Llama-3.2-3B",
     # "phi3": "microsoft/Phi-3.5-mini-instruct",  
-    # "llama8": "meta-llama/Llama-3.1-8B"
-    "llama8": "meta-llama/Meta-Llama-3-8B-Instruct"
+    # "llama8": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "lawllm": "AdaptLLM/law-LLM",
+    # "mistral": "mistralai/Mistral-7B-Instruct-v0.3"
 }
 
 ZERO_PROMPT_0 = """

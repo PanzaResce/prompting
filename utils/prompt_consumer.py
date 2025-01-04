@@ -1,4 +1,4 @@
-import transformers, torch,gc, warnings
+import transformers, torch, gc, warnings, re
 from transformers.utils import ModelOutput
 from tqdm import tqdm
 from abc import ABC, abstractmethod
@@ -10,10 +10,23 @@ class PromptConsumer(ABC):
         self.model = model
         self.tokenizer = tokenizer
     
+    def handle_oom_wrapper(method):
+        def wrapper(self, *args, **kwargs):
+            print("I AM THE WRAPPER")
+            try:
+                return method(self, *args, **kwargs)
+            except RuntimeError as e:
+                print(e)
+                print("-------- CUDA MEMORY SUMMARY --------")
+                print(torch.cuda.memory_summary())
+            return None
+        return wrapper
+
+    @handle_oom_wrapper
     def generate_responses(self, dataset, debug=0):
         responses = []
         for clause in tqdm(dataset["text"], total=len(dataset)):
-
+            
             model_input = self.format_input(clause, debug)
             raw_output = self.run_model(model_input)
             response = self.format_response(raw_output)
@@ -28,7 +41,17 @@ class PromptConsumer(ABC):
         return responses
 
     def clean_response(self, raw_output):
-        return [generated[-1]["generated_text"].strip().lower() for generated in raw_output]
+        def apply_cleaning(response):
+            response = re.sub(r'[^a-zA-Z]', '', response)
+            cleaned = response.strip().lower()
+            return cleaned
+        
+        if len(raw_output) > 1:
+            clean_response = [apply_cleaning(generated[-1]["generated_text"]) for generated in raw_output]
+        else:
+            clean_response = apply_cleaning(raw_output[0][0]["generated_text"])
+        return clean_response
+        # return [generated[-1]["generated_text"].strip().lower() for generated in raw_output]
 
     @abstractmethod
     def format_input(self, clause):
@@ -79,15 +102,15 @@ class PipelinePromptConsumer(PromptConsumer):
         return messages
 
     def run_model(self, model_input):
-        raw_output = self.pipeline(model_input, batch_size=4, max_new_tokens=self.prompt_manager.max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+        raw_output = self.pipeline(model_input, batch_size=1, max_new_tokens=self.prompt_manager.max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
         return raw_output
 
     def format_response(self, raw_output):
-        # clean_response = raw_response[0][0]["generated_text"].strip()
-        if len(raw_output) > 1:
-            clean_response = [generated[-1]["generated_text"].strip() for generated in raw_output]
-        else:
-            clean_response = raw_output[0][0]["generated_text"].strip()
+        # if len(raw_output) > 1:
+        #     clean_response = [generated[-1]["generated_text"].strip().lower() for generated in raw_output]
+        # else:
+        #     clean_response = raw_output[0][0]["generated_text"].strip().lower()
+        clean_response = self.clean_response(raw_output)
         
         return self.prompt_manager.format_response(clean_response)
     
@@ -184,8 +207,14 @@ class PromptChainConsumer(PipelinePromptConsumer):
         super().__init__(prompt_manager, model, tokenizer)
         self.prompt_manager[0].init_definitions(CHAIN_0_DEF)
         self.prompt_manager[1].init_definitions(CHAIN_1_DEF)
+        self.filtered_responses = 0
         # self.prompt_manager[1].init_definitions({k:name for k, name in zip(CHAIN_1_DEF.keys(), LABELS.labels_full_name[1:])})
 
+    def generate_responses(self, dataset, debug=0):
+        responses = super().generate_responses(dataset, debug)
+        print(f"The first prompt filtered {self.filtered_responses} responses")
+        return responses
+    
     def first_prompt_response_is_fair(self, first_response):
         if first_response[0] == "fair":
             return True
@@ -201,7 +230,7 @@ class PromptChainConsumer(PipelinePromptConsumer):
         return model_input_list
     
     def run_model(self, model_input: list):
-        raw_output_0 = self.pipeline(model_input[0], batch_size=4, max_new_tokens=self.prompt_manager[0].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+        raw_output_0 = self.pipeline(model_input[0], batch_size=1, max_new_tokens=self.prompt_manager[0].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
         clean_output_0 = self.clean_response(raw_output_0)
         resp_0 = self.prompt_manager[0].format_response(clean_output_0)
         # print(f"{resp_0=}")
@@ -209,12 +238,12 @@ class PromptChainConsumer(PipelinePromptConsumer):
 
         if self.first_prompt_response_is_fair(resp_0):
             final_resp = resp_0
+            self.filtered_responses +=1
         else:
             index_to_keep = [i for cat in resp_0 for i in range(len(LABELS.get_unfair_labels())) if cat == LABELS.labels[i+1]]
             candidate_positive_clauses = [model_input[1][i] for i in index_to_keep]   # i-1 because we don't have the "fair" case in the input
             # print(f"{candidate_positive_clauses=}")
-            raw_output_1 = self.pipeline(candidate_positive_clauses, batch_size=4, max_new_tokens=self.prompt_manager[1].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
-            # clean_output_1 = [generated[-1]["generated_text"].strip() for generated in raw_output_1]
+            raw_output_1 = self.pipeline(candidate_positive_clauses, batch_size=1, max_new_tokens=self.prompt_manager[1].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
             clean_output_1 = self.clean_response(raw_output_1)
             # print(f"{raw_output_1=}")
             # print(f"{clean_output_1=}")
@@ -223,7 +252,7 @@ class PromptChainConsumer(PipelinePromptConsumer):
             categories = [self.prompt_manager[1].negative_response]*len(LABELS.get_unfair_labels())
             for index, resp in zip(index_to_keep, clean_output_1):
                 categories[index] = resp
-            print(f"{categories=}")
+            # print(f"{categories=}")
             resp_1 = self.prompt_manager[1].format_response(categories)
             # print(f"{raw_output_1=}")
             # print(f"{resp_1=}")

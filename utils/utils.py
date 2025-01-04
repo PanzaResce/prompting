@@ -6,9 +6,6 @@ from .prompt_manager import *
 from .prompt_consumer import * 
 from .svm import SVM
 
-TOKEN= "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"
-HEADERS = {"Authorization": f"Bearer {TOKEN}", 'Cache-Control': 'no-cache'}
-
 def extract_model_name(card):
     return card.split("/")[-1]
 
@@ -50,6 +47,7 @@ def pick_only_unfair_clause(ds_test, num_elements=None):
     return {"text": new_ds_test["text"][:num_elements], "labels": new_ds_test["labels"][:num_elements]}
 
 def load_model_and_tokenizer(model_card, bnb_config):
+    torch.cuda.empty_cache()
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_card,
         device_map="auto",
@@ -59,7 +57,7 @@ def load_model_and_tokenizer(model_card, bnb_config):
     model.generation_config.top_p=1.0
     model.generation_config.temperature=1
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_card)
-    return model, tokenizer
+    return model, tokenizer    
 
 
 def compute_f1_score(responses, labels, label_to_id, debug=0):
@@ -102,6 +100,15 @@ def compute_f1_score(responses, labels, label_to_id, debug=0):
     report = classification_report(y_true, y_pred, zero_division=0, target_names=label_to_id.keys(), output_dict=True)
     return {"report": report}
 
+
+def write_predictions_to_file(responses, dataset, output_dir, model_name):
+    os.makedirs(f"out/{output_dir}/", exist_ok=True)
+    with open(f'out/{output_dir}/{model_name}_resp.txt', 'w') as file: 
+        for clause, label, resp in zip(dataset["text"], dataset["labels"], responses):
+            labels = ",".join([LABELS.labels[l] for l in label])
+            resps = ",".join(resp)
+            to_write = clause + f"\t[{labels}]" + f"\t[{resps}]\n"
+            file.write(to_write)
 
 def write_res_to_file(model_name, model_score, output_dir):
     os.makedirs(f"out/{output_dir}/", exist_ok=True)
@@ -160,15 +167,18 @@ def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num
     prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots)
 
     if prompt_type == "prompt_chain":
-        return PromptChainConsumer(prompt_manager, model, tokenizer)
+        prompt_consumer = PromptChainConsumer(prompt_manager, model, tokenizer)
     elif prompt_type == "svm_few":
         prompt_manager = get_prompt_manager("multi_few", label_to_id, num_shots)
         svm = SVM(load=True)
-        return SVMPromptConsumer(prompt_manager, model, tokenizer, svm)
+        prompt_consumer = SVMPromptConsumer(prompt_manager, model, tokenizer, svm)
     elif prompt_type == "multi_few_no_templ" or not model_has_chat_template:
-        return BareModelPromptConsumer(prompt_manager, model, tokenizer)
+        prompt_consumer = BareModelPromptConsumer(prompt_manager, model, tokenizer)
     else:
-        return PipelinePromptConsumer(prompt_manager, model, tokenizer)
+        prompt_consumer = PipelinePromptConsumer(prompt_manager, model, tokenizer)
+    
+    print(f"{type(prompt_consumer).__name__} is being used")
+    return prompt_consumer
 
 
 def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, debug=0):
@@ -193,9 +203,10 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, w
             "validation": validation_report
         }
 
+        output_dir = prompt_type if num_shots is None else prompt_type+"_"+str(num_shots)
         if write_to_file:
-            output_dir = prompt_type+"_"+str(num_shots) if prompt_type in ["multi_few"] else prompt_type
             write_res_to_file(model_name, {model_name: {"test": test_report,"validation": validation_report}}, output_dir)
+        write_predictions_to_file(test_responses, ds_test, output_dir, model_name)
 
         prompt_consumer.free_memory()
 
