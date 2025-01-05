@@ -14,6 +14,7 @@ class SVM():
         self.clf = None
         self.dataset = dataset
         self.recall_unfair_threshold = 0.9
+        self.f1_unfair_threshold = 0.8
         self.best_params = best_params
         self.scorer = self.make_scorer()
 
@@ -23,12 +24,7 @@ class SVM():
     def get_binarized_labels(self, dataset):
         return [0 if 0 in l else 1 for l in dataset["labels"]]
 
-    def refit_strategy(self, gs_results):
-        # filtered_recall_fair = gs_results["mean_test_recall_fair"][gs_results["mean_test_recall_unfair"] > self.recall_unfair_threshold]
-        # filtered_recall_unfair = gs_results["mean_test_recall_unfair"][gs_results["mean_test_recall_unfair"] > self.recall_unfair_threshold]
-        # print(f"{filtered_recall_fair}")
-        # print(f"{filtered_recall_unfair}")
-        
+    def recall_strategy(self, gs_results):
         avg_recall = (gs_results["mean_test_recall_fair"] + gs_results["mean_test_recall_unfair"])/2
         best_index = avg_recall.argmax()
         print(best_index)
@@ -48,13 +44,37 @@ class SVM():
         print(f"Params:\t{gs_results['params'][best_index]}")
         return best_index
 
+    def f1_strategy(self, gs_results):
+        best_index = gs_results["mean_test_f1_unfair"].argmax()
+        if gs_results["mean_test_f1_unfair"][best_index] <= self.recall_unfair_threshold:
+            print(f"Best model has f1 under the threshold: {gs_results['mean_test_f1_unfair'][best_index]}|{self.f1_unfair_threshold}")
+        print(f"OTHER MODELS WITH UNFAIR F1 OVER THE THRESHOLD {self.recall_unfair_threshold}")
+        for i, f1_rec in enumerate(gs_results["mean_test_f1_unfair"]):
+            if i != best_index and f1_rec > self.f1_unfair_threshold:
+                print(f"F1 Fair:\t{gs_results['mean_test_f1_fair'][i]:.2f}")
+                print(f"F1 Unfair:\t{gs_results['mean_test_f1_unfair'][i]:.2f}")
+                print(f"Params:\t{gs_results['params'][i]}")
+        return best_index
+
+    def refit_strategy(self, gs_results, strategy_type):
+        print(f"Strategy: {strategy_type}")
+        if strategy_type == "recall_unfair":
+            best_index = self.recall_strategy(gs_results)
+        elif strategy_type == "f1_unfair":
+            best_index = self.f1_strategy(gs_results)
+        return best_index
+
     def make_scorer(self):
         recall_fair_scorer = metrics.make_scorer(metrics.recall_score, average=None, labels=[0])
         recall_unfair_scorer = metrics.make_scorer(metrics.recall_score, average=None, labels=[1])
+        f1_fair_scorer = metrics.make_scorer(metrics.f1_score, average=None, labels=[0])
+        f1_unfair_scorer = metrics.make_scorer(metrics.f1_score, average=None, labels=[1])
 
         scoring = {
             'recall_fair': recall_fair_scorer,
-            'recall_unfair': recall_unfair_scorer
+            'recall_unfair': recall_unfair_scorer,
+            'f1_fair': f1_fair_scorer,
+            'f1_unfair': f1_unfair_scorer
         }
         return scoring
 
@@ -85,7 +105,7 @@ class SVM():
             # Fixate Validation Split
             split_index = [-1] * len(self.dataset['train']) + [0] * len(self.dataset['validation'])
             val_split = PredefinedSplit(test_fold=split_index)
-            gs_clf = GridSearchCV(text_clf, parameters, cv=val_split, n_jobs=32, verbose=4, refit=self.refit_strategy, scoring=self.scorer)
+            gs_clf = GridSearchCV(text_clf, parameters, cv=val_split, n_jobs=32, verbose=4, refit=lambda res: self.refit_strategy(res, 'f1_unfair'), scoring=self.scorer)
             
             x_train_val = x_train + x_val
             y_train_val = y_train + y_val
@@ -130,25 +150,46 @@ class SVM():
         with open('utils/svm.pkl', 'rb') as f:
             self.clf = pickle.load(f)
 
-if __name__ == '__main__':
-    print("TRAINING AND SAVING SVM CLASSIFIER OVER BINARIZED LABELS (FAIR|UNFAIR)")
-    default_best_params = {
-        "clf__kernel": "rbf",
-        "clf__C": 1.0,
-        "clf__gamma": 0.003593813663804626
-    }
+def evaluate_svm(dataset):
+    ds_test = dataset["test"]
 
+    clf = SVM(load=True)
+    report = clf.evaluate(ds_test, report=True)
+    print(report)
+
+if __name__ == '__main__':
+    # rec balanced
     # default_best_params = {
     #     "clf__kernel": "rbf",
-    #     "clf__C": 21.54434690031882,
-    #     "clf__gamma": 0.0001
+    #     "clf__C": 1.0,
+    #     "clf__gamma": 0.003593813663804626
     # }
+
+    # rec 1
+    default_best_params = {
+        "clf__kernel": "rbf",
+        "clf__C": 21.54434690031882,
+        "clf__gamma": 0.0001
+    }
+
+    # f1 - 0.71
+    # default_best_params = {
+    #     'clf__C': 1.0, 
+    #     'clf__gamma': 0.774263682681127, 
+    #     'clf__kernel': 'rbf'
+    # }
+    
 
     dataset = load_from_disk("./142_dataset/tos.hf/")
     clf = SVM(dataset)
-    if sys.argv[1] == "-best":
-        print(f"Training with default parameters: {default_best_params}")
-        clf.train(default_best_params)
+    if len(sys.argv) > 1: 
+        if sys.argv[1] == "-best":
+            print(f"Training with default parameters: {default_best_params}")
+            clf.train(default_best_params)
+            clf.save()
+        elif sys.argv[1] == "-eval":
+            print("Evaluating model svm.pkl located in utils/")
+            evaluate_svm(dataset)
     else:
         clf.train()
-    clf.save()
+        clf.save()
