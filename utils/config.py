@@ -2,8 +2,8 @@ ENDPOINTS = {
     # "llama3": "meta-llama/Llama-3.2-3B-Instruct",
     # "llama3": "meta-llama/Llama-3.2-3B",
     # "phi3": "microsoft/Phi-3.5-mini-instruct",  
-    # "llama8": "meta-llama/Meta-Llama-3-8B-Instruct",
-    "lawllm": "AdaptLLM/law-LLM",
+    "llama8": "meta-llama/Meta-Llama-3-8B-Instruct",
+    # "lawllm": "AdaptLLM/law-LLM",
     # "mistral": "mistralai/Mistral-7B-Instruct-v0.3"
 }
 
@@ -156,7 +156,7 @@ CHAIN_0_DEF = {
     "law" : "A choice of law clause specifies what law will govern the contract and be applied in potential disputes.",
     "ltd" : "A limitation of liability clause specifies for what actions/events and under what circumstances the providers exclude, limit or reduce their liability, the duty to compensate damages and/or when contains a blanket phrase like 'to the fullest extent permissible by law'.",
     "ter" : "The unilateral termination clause states that the provider has the right to suspend and/or terminate the service and/or the contract and/or the consumer’s account, due to some reasons, or at any time, for any or no reasons with or without notice. ",
-    "use" : "A contract by using clause is unfair whenever it states that the consumer is bound by the terms of use/service simply by using the service, downloading the app, or visiting the website.",
+    "use" : "A contract by using clause states that the consumer is bound by the terms of use/service simply by using the service, downloading the app, or visiting the website.",
     "pinc" : "A clause that explicitly state that, simply by using the service, the consumer consents to the processing of personal data as described in the privacy policy, and/or state that the privacy policy is incorporated into and form part of the terms and it is preceded by a content by using clause to such terms."
 }
 

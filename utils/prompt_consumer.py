@@ -12,7 +12,6 @@ class PromptConsumer(ABC):
     
     def handle_oom_wrapper(method):
         def wrapper(self, *args, **kwargs):
-            print("I AM THE WRAPPER")
             try:
                 return method(self, *args, **kwargs)
             except RuntimeError as e:
@@ -49,7 +48,7 @@ class PromptConsumer(ABC):
         if len(raw_output) > 1:
             clean_response = [apply_cleaning(generated[-1]["generated_text"]) for generated in raw_output]
         else:
-            clean_response = apply_cleaning(raw_output[0][0]["generated_text"])
+            clean_response = [apply_cleaning(raw_output[0][0]["generated_text"])]
         return clean_response
         # return [generated[-1]["generated_text"].strip().lower() for generated in raw_output]
 
