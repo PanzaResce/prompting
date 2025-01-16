@@ -14,10 +14,10 @@ def print_classification_report_tabulate(scikit_classification_report):
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
 def print_model_f1(scikit_classification_report):
-    print(f"Macro F1: {scikit_classification_report["macro avg"]["f1-score"]*100:.1f}")
-    print(f"Micro F1: {scikit_classification_report["micro avg"]["f1-score"]*100:.1f}")
-    print(f"Macro Precision: {scikit_classification_report["macro avg"]["precision"]*100:.1f}")
-    print(f"Micro Precision: {scikit_classification_report["micro avg"]["precision"]*100:.1f}")
+    print(f"Micro F1: {scikit_classification_report["micro avg"]["f1-score"]:.2f}")
+    print(f"Macro F1: {scikit_classification_report["macro avg"]["f1-score"]:.2f}")
+    print(f"Macro Accuracy: {scikit_classification_report["macro avg"]["precision"]:.2f}")
+    print(f"Macro Recall: {scikit_classification_report["macro avg"]["recall"]:.2f}")
 
 def pretty_print_classification_report(scikit_classification_report, only_metrics):
     if only_metrics:
@@ -39,9 +39,9 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "-f1",
+        "-m",
         action="store_true",
-        help="Output only the macro/micro F1"
+        help="Output only the main metrics"
     )
     
     return parser.parse_args()
@@ -59,4 +59,4 @@ if __name__ == "__main__":
             report = json.load(file)
             model_name = list(report.keys())[0]
             print(f"------------------------Report for model {model_name}------------------------")
-            pretty_print_classification_report(report[model_name]["test"]["report"], args.f1)
+            pretty_print_classification_report(report[model_name]["test"]["report"], args.m)

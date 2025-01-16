@@ -46,18 +46,19 @@ def pick_only_unfair_clause(ds_test, num_elements=None):
 
     return {"text": new_ds_test["text"][:num_elements], "labels": new_ds_test["labels"][:num_elements]}
 
-def load_model_and_tokenizer(model_card, bnb_config):
+def load_model_and_tokenizer(model_card, bnb_config, device_map):
     torch.cuda.empty_cache()
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_card,
-        device_map="auto",
+        device_map=device_map,
         quantization_config=bnb_config,
         trust_remote_code=True,
     )
+    model.generation_config.do_sample=False
     model.generation_config.top_p=1.0
-    model.generation_config.temperature=1
+    model.generation_config.temperature=None
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_card)
-    return model, tokenizer    
+    return model, tokenizer
 
 
 def compute_f1_score(responses, labels, label_to_id, debug=0):
@@ -148,10 +149,10 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots):
         prompt_manager.set_response_type(positive="yes", negative="no")
     elif prompt_type == "prompt_chain":
         per_category_examples = read_examples_from_json(exclude_fair=True)
-        prompt_manager_0 = ZeroMultiPrompt(PROMPT_CHAIN_0, label_to_id, max_new_tokens=5)
+        prompt_manager_0 = ZeroMultiPrompt(PROMPT_CHAIN_0, label_to_id, max_new_tokens=2)
         prompt_manager_0.set_response_type(positive="yes", negative="no")
 
-        prompt_manager_1 = FewMultiPrompt(PROMPT_CHAIN_1, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=5)
+        prompt_manager_1 = FewMultiPrompt(PROMPT_CHAIN_1, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2)
         prompt_manager_1.set_response_type(positive="yes", negative="no")
 
         prompt_manager = [prompt_manager_0, prompt_manager_1]
@@ -160,10 +161,13 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots):
 
     return prompt_manager
 
-
-def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id):
-    model, tokenizer = load_model_and_tokenizer(model_card, bnb_config)
+def factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id):
     model_has_chat_template = not tokenizer.chat_template is None
+    if not model_has_chat_template:
+        print("Initializing default template")
+        tokenizer.chat_template = PromptConsumer.default_template
+    print(f"Model has chat template: {model_has_chat_template}")
+
     prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots)
 
     if prompt_type == "prompt_chain":
@@ -172,7 +176,7 @@ def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num
         prompt_manager = get_prompt_manager("multi_few", label_to_id, num_shots)
         svm = SVM(load=True)
         prompt_consumer = SVMPromptConsumer(prompt_manager, model, tokenizer, svm)
-    elif prompt_type == "multi_few_no_templ" or not model_has_chat_template:
+    elif prompt_type == "multi_few_no_templ":
         prompt_consumer = BareModelPromptConsumer(prompt_manager, model, tokenizer)
     else:
         prompt_consumer = PipelinePromptConsumer(prompt_manager, model, tokenizer)
@@ -181,7 +185,7 @@ def factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num
     return prompt_consumer
 
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, write_to_file, debug=0):
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, device_map, write_to_file, debug=0):
     label_to_id = LABELS.labels_to_id()
 
     bnb_config = get_bnb_config(quant)
@@ -192,7 +196,8 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, w
     for model_name, model_card in endpoints.items():
         print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} bit quantization ------------")
 
-        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model_card, bnb_config, num_shots, label_to_id)
+        model, tokenizer = load_model_and_tokenizer(model_card, bnb_config, device_map)
+        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id)
         test_responses = prompt_consumer.generate_responses(ds_test, debug)
         test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, debug)
 

@@ -15,7 +15,7 @@ class GenericPromptManager(ABC):
         pass
 
 class StandardPrompt(GenericPromptManager):
-    def get_prompts(self, clause):
+    def get_prompts(self, clause, debug=0):
         return [self.prompt_template + clause]
 
     def format_response(self, clean_response):
@@ -123,7 +123,7 @@ class FewMultiPrompt(MultiPrompt):
             formatted_prompt = self.prompt_template.format(cat_descr=category_definition, examples=examples, clause=clause)
             list_of_prompts.append(formatted_prompt)
 
-            if debug > 1:
+            if debug == 1:
                 print(f"EXAMPLES: \n{examples}")
                 print(f"DEFINITION: \n{category_definition}")
                 print(f"PROMPT for category '{category}': \n{formatted_prompt}")

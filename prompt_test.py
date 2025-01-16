@@ -55,6 +55,15 @@ def parse_arguments():
     )
 
     parser.add_argument(
+        "-device",
+        type=str,
+        required=True,
+        metavar="device_map",
+        choices=["cpu", "cuda", "auto"],
+        help="Where to load the model"
+    )
+
+    parser.add_argument(
         "-quant",
         type=str,
         required=True,
@@ -103,10 +112,10 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, args.device, True, args.debug)
         print(models_score)
     elif args.m:
         print(f"Running evaluation on model: {args.m}")
         endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, True, args.debug)
+        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, args.device, True, args.debug)
         print(model_score)

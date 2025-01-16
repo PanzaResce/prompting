@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from .config import LABELS, CHAIN_0_DEF, CHAIN_1_DEF
 
 class PromptConsumer(ABC):
+    default_template = "{% set loop_messages = messages %}{% for message in loop_messages %}{% if loop.index0 == 0 %}<s>[INST] <<SYS>>{{ message['content'] | trim }}<</SYS>>{% elif message['role'] == 'user' %}{{ message['content'] | trim }} [/INST]{% elif message['role'] == 'assistant' %}{{ message['content'] | trim }} [/INST]{% endif %}{% endfor %}{% if add_generation_prompt %}{{ ' [/INST]' }}{% endif %}"
+
     def __init__(self, prompt_manager, model, tokenizer):
         self.prompt_manager = prompt_manager
         self.model = model
@@ -230,6 +232,7 @@ class PromptChainConsumer(PipelinePromptConsumer):
     
     def run_model(self, model_input: list):
         raw_output_0 = self.pipeline(model_input[0], batch_size=1, max_new_tokens=self.prompt_manager[0].max_new_tokens, temperature=1, do_sample=False, return_full_text=False)
+        torch.cuda.empty_cache()
         clean_output_0 = self.clean_response(raw_output_0)
         resp_0 = self.prompt_manager[0].format_response(clean_output_0)
         # print(f"{resp_0=}")
