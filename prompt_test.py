@@ -78,9 +78,15 @@ def parse_arguments():
         help="Use a -subset of only unfair clauses"
     )
 
+    parser.add_argument(
+        "-resp_file",
+        type=str,
+        help="Use the model's responses by reading the file {model}_resp.txt"
+    )
+
     args = parser.parse_args()
 
-    if args.type in ["multi_few", "bare_multi_few"] and args.num_shots is None:
+    if args.type in ["prompt_chain", "multi_few", "bare_multi_few"] and args.num_shots is None:
         parser.error("-num_shots is required when -type is 'multi_few'")
     
     # Print info
@@ -96,7 +102,7 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     print("Token login")
-    login("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")
+    login("HF_TOKEN")
 
     ds_test = load_dataset("./142_dataset/tos.hf/", split="test")
 
@@ -112,10 +118,7 @@ if __name__ == "__main__":
 
     if args.all:
         print("Running evaluation on all models.")
-        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, args.device, True, args.debug)
+        models_score = evaluate_models(ENDPOINTS, ds_test, None, args.type, args.quant, args.num_shots, args.device, True, args.resp_file, args.debug)
         print(models_score)
     elif args.m:
-        print(f"Running evaluation on model: {args.m}")
-        endpoint = {f"{extract_model_name(args.m)}": f"{args.m}"}
-        model_score = evaluate_models(endpoint, ds_test, None, args.type, args.quant, args.num_shots, args.device, True, args.debug)
-        print(model_score)
+        print("Not implemented")

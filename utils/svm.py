@@ -166,18 +166,24 @@ if __name__ == '__main__':
     # }
 
     # rec 1
-    default_best_params = {
-        "clf__kernel": "rbf",
-        "clf__C": 21.54434690031882,
-        "clf__gamma": 0.0001
-    }
+    # default_best_params = {
+    #     "clf__kernel": "rbf",
+    #     "clf__C": 21.54434690031882,
+    #     "clf__gamma": 0.0001
+    # }
+
+    # default_best_params = {
+    #     "clf__loss": "hinge",
+    #     "clf__C": 1,
+    #     "vect__max_features": 10000,
+    # }
 
     # f1 - 0.71
-    # default_best_params = {
-    #     'clf__C': 1.0, 
-    #     'clf__gamma': 0.774263682681127, 
-    #     'clf__kernel': 'rbf'
-    # }
+    default_best_params = {
+        'clf__C': 1.0, 
+        'clf__gamma': 0.774263682681127, 
+        'clf__kernel': 'rbf'
+    }
     
 
     dataset = load_from_disk("./142_dataset/tos.hf/")

@@ -174,10 +174,33 @@ class BareModelPromptConsumer(PromptConsumer):
         return self.prompt_manager.format_response(clean_resp)
 
 class SVMPromptConsumer(PipelinePromptConsumer):
-    def __init__(self, prompt_manager, model, tokenizer, svm):
-        super().__init__(prompt_manager, model, tokenizer)
+    def __init__(self, prompt_manager, model, tokenizer, svm, resp_file=""):
         self.svm = svm
-    
+        if resp_file != "":
+            self.use_file = True
+            self.true_labels, self.predicted_labels, self.clauses = self.read_responses_from_file(resp_file)
+        else:
+            super().__init__(prompt_manager, model, tokenizer)
+
+    def read_responses_from_file(self, resp_file):
+        true_labels = []
+        predicted_labels = []
+        clauses = []
+        file_path = f"out/{resp_file}"
+
+        with open(file_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                if len(parts) >= 3:
+                    clause, true_label, predicted_label = parts[-3:]
+
+                    true_labels.append(true_label)
+                    predicted_labels.append(predicted_label)
+                    clauses.append(clause)
+                else:
+                    print(parts)
+        return true_labels, predicted_labels, clauses
+
     def generate_responses(self, dataset, debug=0):
         unfair_from_svm = self.svm.predict(dataset)
         unfair_from_svm = [1 if pred == 1 else 0 for pred in unfair_from_svm]
@@ -187,9 +210,15 @@ class SVMPromptConsumer(PipelinePromptConsumer):
         print(f"Unfair clauses filtered by SVM: {sum(unfair_from_svm)}")
         for clause in tqdm(dataset["text"], total=len(dataset)):
             if unfair_from_svm[index] == 1:
-                model_input = self.format_input(clause, debug)
-                raw_output = self.run_model(model_input)
-                response = self.format_response(raw_output)
+                if self.use_file:
+                    response = self.predicted_labels[index]
+                    # if self.clauses[index] != clause:
+                    #     print(self.clauses[index])
+                    #     print(clause)
+                else:
+                    model_input = self.format_input(clause, debug)
+                    raw_output = self.run_model(model_input)
+                    response = self.format_response(raw_output)
 
                 if debug > 0:
                     print(f"{model_input=}")

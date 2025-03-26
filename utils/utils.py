@@ -108,6 +108,7 @@ def write_predictions_to_file(responses, dataset, output_dir, model_name):
         for clause, label, resp in zip(dataset["text"], dataset["labels"], responses):
             labels = ",".join([LABELS.labels[l] for l in label])
             resps = ",".join(resp)
+            # clause, true labels, predicted labels
             to_write = clause + f"\t[{labels}]" + f"\t[{resps}]\n"
             file.write(to_write)
 
@@ -130,9 +131,7 @@ def read_examples_from_json(exclude_fair):
 
 def get_prompt_manager(prompt_type, label_to_id, num_shots):
     if prompt_type == "zero":
-        prompt_manager = StandardPrompt(ZERO_PROMPT_1, max_new_tokens=30)
-    elif prompt_type == "zero_old":
-        prompt_manager = StandardPrompt(ZERO_PROMPT_0, max_new_tokens=30)
+        prompt_manager = StandardPrompt(ZERO_PROMPT, max_new_tokens=30)
     # elif prompt_type == "multi_few_half":
     #     prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW, label_to_id, num_shots=2, only_unfair_examples=False)
     elif prompt_type == "multi_few":
@@ -142,7 +141,7 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots):
     elif prompt_type == "bare_multi_few":
         per_category_examples = read_examples_from_json(exclude_fair=True)
         prompt_manager = FewMultiPrompt(MULTI_PROMPT_FEW_NO_TEMPL, label_to_id, per_category_examples, num_shots, only_unfair_examples=True, max_new_tokens=2)
-        prompt_manager.set_response_type(positive="Yes", negative="No")
+        prompt_manager.set_response_type(positive="yes", negative="no")
         # prompt_manager.set_response_type(positive="y", negative="n")
     elif prompt_type == "multi_zero":
         prompt_manager = ZeroMultiPrompt(MULTI_PROMPT, label_to_id, max_new_tokens=2)
@@ -161,12 +160,13 @@ def get_prompt_manager(prompt_type, label_to_id, num_shots):
 
     return prompt_manager
 
-def factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id):
-    model_has_chat_template = not tokenizer.chat_template is None
-    if not model_has_chat_template:
-        print("Initializing default template")
-        tokenizer.chat_template = PromptConsumer.default_template
-    print(f"Model has chat template: {model_has_chat_template}")
+def factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id, resp_file):
+    if resp_file == "":
+        model_has_chat_template = not tokenizer.chat_template is None
+        if not model_has_chat_template:
+            print("Initializing default template")
+            tokenizer.chat_template = PromptConsumer.default_template
+        print(f"Model has chat template: {model_has_chat_template}")
 
     prompt_manager = get_prompt_manager(prompt_type, label_to_id, num_shots)
 
@@ -175,7 +175,7 @@ def factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots
     elif prompt_type == "svm_few":
         prompt_manager = get_prompt_manager("multi_few", label_to_id, num_shots)
         svm = SVM(load=True)
-        prompt_consumer = SVMPromptConsumer(prompt_manager, model, tokenizer, svm)
+        prompt_consumer = SVMPromptConsumer(prompt_manager, model, tokenizer, svm, resp_file)
     elif prompt_type == "multi_few_no_templ":
         prompt_consumer = BareModelPromptConsumer(prompt_manager, model, tokenizer)
     else:
@@ -185,7 +185,7 @@ def factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots
     return prompt_consumer
 
 
-def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, device_map, write_to_file, debug=0):
+def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, device_map, write_to_file, resp_file, debug=0):
     label_to_id = LABELS.labels_to_id()
 
     bnb_config = get_bnb_config(quant)
@@ -196,8 +196,11 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, d
     for model_name, model_card in endpoints.items():
         print(f"------------ Evaluating model {model_name} on {prompt_type} with {quant} bit quantization ------------")
 
-        model, tokenizer = load_model_and_tokenizer(model_card, bnb_config, device_map)
-        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id)
+        if resp_file == None:
+            model, tokenizer = load_model_and_tokenizer(model_card, bnb_config, device_map)
+        else:
+            model, tokenizer = None, None
+        prompt_consumer = factory_instantiate_prompt_consumer(prompt_type, model, tokenizer, num_shots, label_to_id, resp_file)
         test_responses = prompt_consumer.generate_responses(ds_test, debug)
         test_report = compute_f1_score(test_responses, ds_test["labels"], label_to_id, debug)
 
@@ -213,6 +216,7 @@ def evaluate_models(endpoints, ds_test, ds_val, prompt_type, quant, num_shots, d
             write_res_to_file(model_name, {model_name: {"test": test_report,"validation": validation_report}}, output_dir)
         write_predictions_to_file(test_responses, ds_test, output_dir, model_name)
 
-        prompt_consumer.free_memory()
+        if resp_file == "":
+            prompt_consumer.free_memory()
 
     return models_score

@@ -9,4 +9,6 @@ ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/cuda/lib64:/usr/local/cuda/incl
 WORKDIR /prompting
 COPY . .
 
+
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 RUN pip3 install -r requirements.txt 

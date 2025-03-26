@@ -10,3 +10,4 @@ out/
 142_dataset/
 prova.ipynb
 utils/svm.pkl
+ensembles/
